@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: information-retrieval
+
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/information_retrieval}
+
+  thymeleaf:
+    cache: false
+
+server:
+  port: 8080
+
+logging:
+  level:
+    vn.hust.ir: INFO
+    org.springframework.data.mongodb: WARN
+
+ir:
+  crawler:
+    allowed-domain: hust.edu.vn
+    max-pages-per-run: 1000
+    legacy-url-file: url-crawled.txt
+    content-extraction-strategy: READABILITY
+
+  storage:
+    data-dir: data
+    index-dir: index

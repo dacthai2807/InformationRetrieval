@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HUST Search | Information Retrieval</title>
+
+    <style>
+        :root {
+            --ink: #182230;
+            --muted: #667085;
+            --line: #dfe4ec;
+            --blue: #175cd3;
+            --blue-light: #eff6ff;
+            --green: #067647;
+            --surface: #f8fafc;
+            --red: #b42318;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            color: var(--ink);
+            background: #f5f7fa;
+            font: 16px/1.65 "Segoe UI", Arial, sans-serif;
+        }
+
+        header {
+            height: 68px;
+            padding: 0 max(5%, calc((100% - 1180px) / 2));
+            background: white;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .brand { font-size: 21px; font-weight: 750; }
+        .brand span { color: var(--blue); }
+        .header-note { color: var(--muted); font-size: 14px; }
+
+        main {
+            max-width: 1180px;
+            width: 92%;
+            margin: 34px auto 64px;
+        }
+
+        .page-title {
+            margin: 0;
+            font-size: clamp(30px, 4vw, 38px);
+            line-height: 1.25;
+            letter-spacing: -1px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            margin: 8px 0 28px;
+            font-size: 16px;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 20px;
+            align-items: start;
+        }
+
+        .panel {
+            background: white;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 24px;
+            box-shadow: 0 2px 5px #10182808;
+            min-width: 0;
+        }
+
+        .search-panel { grid-column: 1 / -1; }
+
+        h2 {
+            margin: 0 0 6px;
+            font-size: 21px;
+            letter-spacing: -.3px;
+        }
+
+        .description {
+            color: var(--muted);
+            font-size: 15px;
+            margin: 0 0 20px;
+        }
+
+        .search-form {
+            display: flex;
+            gap: 10px;
+        }
+
+        input, select {
+            width: 100%;
+            min-width: 0;
+            border: 1px solid #cfd5df;
+            border-radius: 9px;
+            background: white;
+            padding: 12px 14px;
+            color: var(--ink);
+            font: inherit;
+        }
+
+        input:focus, select:focus {
+            outline: 3px solid #175cd31c;
+            border-color: var(--blue);
+        }
+
+        button {
+            border: 0;
+            border-radius: 9px;
+            padding: 12px 18px;
+            background: var(--blue);
+            color: white;
+            font: inherit;
+            font-weight: 650;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background .15s ease;
+        }
+
+        button:hover { background: #1849a9; }
+
+        button.secondary {
+            background: white;
+            color: var(--ink);
+            border: 1px solid #cfd5df;
+        }
+
+        button.secondary:hover { background: var(--surface); }
+
+        button:disabled {
+            opacity: .55;
+            cursor: not-allowed;
+        }
+
+        .field-label {
+            display: block;
+            font-weight: 650;
+            font-size: 15px;
+            margin-bottom: 7px;
+        }
+
+        .limit-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 12px;
+            align-items: end;
+        }
+
+        .help {
+            color: var(--muted);
+            font-size: 13px;
+            margin: 9px 0 0;
+        }
+
+        .status-box {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+        }
+
+        .status-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .status-name { font-weight: 700; }
+
+        .state {
+            font-size: 13px;
+            border-radius: 20px;
+            padding: 3px 10px;
+            background: #eaecf0;
+            color: #344054;
+            white-space: nowrap;
+        }
+
+        .state.running {
+            background: var(--blue-light);
+            color: var(--blue);
+        }
+
+        .state.done {
+            background: #ecfdf3;
+            color: var(--green);
+        }
+
+        .state.error {
+            background: #fef3f2;
+            color: var(--red);
+        }
+
+        .progress-track {
+            height: 8px;
+            overflow: hidden;
+            border-radius: 10px;
+            background: #e4e7ec;
+            margin: 12px 0;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: var(--blue);
+            transition: width .3s ease;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .stat {
+            padding: 10px;
+            background: white;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+        }
+
+        .stat-label {
+            display: block;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .stat-value {
+            font-size: 21px;
+            font-weight: 750;
+            overflow-wrap: anywhere;
+        }
+
+        .current-message {
+            margin: 12px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            border-bottom: 1px solid var(--line);
+            padding-bottom: 12px;
+            margin: 28px 0 8px;
+        }
+
+        .result {
+            padding: 18px 0;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .result h3 { margin: 0 0 4px; font-size: 18px; }
+        .result h3 a { color: #1849a9; text-decoration: none; }
+        .result h3 a:hover { text-decoration: underline; }
+
+        .url {
+            color: #16803d;
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .snippet { color: #475467; margin: 8px 0; }
+        .score { color: var(--muted); font-size: 13px; }
+
+        .empty {
+            padding: 20px;
+            margin-top: 14px;
+            border: 1px dashed #cfd5df;
+            border-radius: 10px;
+            color: var(--muted);
+        }
+
+        .empty strong {
+            display: block;
+            color: var(--ink);
+            margin-bottom: 5px;
+        }
+
+        footer {
+            background: white;
+            border-top: 1px solid var(--line);
+            padding: 20px 5%;
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @media (max-width: 760px) {
+            .layout { grid-template-columns: 1fr; }
+            .search-panel { grid-column: auto; }
+            .panel { padding: 19px; }
+            .header-note { display: none; }
+        }
+
+        @media (max-width: 460px) {
+            .search-form { flex-direction: column; }
+            .limit-row { grid-template-columns: 1fr; }
+            .limit-row button { width: 100%; }
+            .stats { gap: 6px; }
+            .stat { padding: 8px; }
+            .stat-value { font-size: 18px; }
+        }
+    </style>
+</head>
+
+<body>
+<header>
+    <div class="brand"><span>HUST</span> Search</div>
+    <div class="header-note">Information Retrieval · Apache Lucene</div>
+</header>
+
+<main>
+    <h1 class="page-title">Information Retrieval</h1>
+    <p class="subtitle">
+        Thu thập dữ liệu website, lập chỉ mục văn bản và tìm kiếm theo độ liên quan.
+    </p>
+
+    <div class="layout">
+        <section class="panel">
+            <h2>Nạp URL có sẵn</h2>
+            <p class="description">
+                Đọc các URL đầu tiên trong url-crawled.txt, tải văn bản và lập chỉ mục Lucene.
+            </p>
+
+            <form id="index-form">
+                <label class="field-label" for="url-limit">
+                    Số URL muốn xử lý
+                </label>
+                <div class="limit-row">
+                    <select id="url-limit" name="limit">
+                        <option value="10">10 URL</option>
+                        <option value="50">50 URL</option>
+                        <option value="100" selected>100 URL</option>
+                        <option value="200">200 URL</option>
+                        <option value="500">500 URL</option>
+                        <option value="1000">1.000 URL</option>
+                    </select>
+                    <button id="index-button" type="submit">Nạp vào Lucene</button>
+                </div>
+                <p class="help">
+                    Chọn số URL trước khi chạy. File gốc chỉ được đọc, không bị sửa.
+                </p>
+            </form>
+
+            <div class="status-box">
+                <div class="status-top">
+                    <span class="status-name">Tiến độ nạp URL</span>
+                    <span id="index-state" class="state">Chưa chạy</span>
+                </div>
+
+                <div class="progress-track">
+                    <div id="index-progress" class="progress-bar"></div>
+                </div>
+
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Đã xử lý</span>
+                        <span id="index-processed" class="stat-value">0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Đã lập chỉ mục</span>
+                        <span id="index-indexed" class="stat-value">0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Lỗi</span>
+                        <span id="index-errors" class="stat-value">0</span>
+                    </div>
+                </div>
+
+                <p id="index-message" class="current-message">
+                    Chưa bắt đầu nạp URL.
+                </p>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Crawler website</h2>
+            <p class="description">
+                Bắt đầu từ trang HUST, lần theo liên kết nội bộ và tự lập chỉ mục HTML.
+            </p>
+
+            <button id="crawl-button" type="button">Bắt đầu crawl nền</button>
+
+            <p class="help">
+                Giới hạn mỗi lượt: 1.000 URL theo cấu hình crawler.
+            </p>
+
+            <div class="status-box">
+                <div class="status-top">
+                    <span class="status-name">Tiến độ crawler</span>
+                    <span id="crawl-state" class="state">Chưa chạy</span>
+                </div>
+
+                <div class="progress-track">
+                    <div id="crawl-progress" class="progress-bar"></div>
+                </div>
+
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Đã xử lý</span>
+                        <span id="crawl-processed" class="stat-value">0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Đã lập chỉ mục</span>
+                        <span id="crawl-indexed" class="stat-value">0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Lỗi</span>
+                        <span id="crawl-errors" class="stat-value">0</span>
+                    </div>
+                </div>
+
+                <p id="crawl-message" class="current-message">
+                    Crawler chưa chạy.
+                </p>
+            </div>
+        </section>
+
+        <section class="panel search-panel">
+            <h2>Tìm kiếm văn bản</h2>
+            <p class="description">
+                Tìm trên những tài liệu đã được lập chỉ mục, xếp hạng bằng TF-IDF.
+            </p>
+
+            <form class="search-form" action="/" method="get">
+                <input type="search"
+                       name="q"
+                       placeholder="Nhập từ khóa tiếng Việt..."
+                       th:value="${query}"
+                       aria-label="Từ khóa tìm kiếm">
+                <button type="submit">Tìm kiếm</button>
+            </form>
+
+            <section th:if="${searched}">
+                <div class="results-header">
+                    <h2>Kết quả</h2>
+                    <span th:text="${resultCount} + ' tài liệu'">0 tài liệu</span>
+                </div>
+
+                <div class="empty" th:if="${searchErrorPresent}">
+                    Không thể tìm kiếm. Hãy kiểm tra log ứng dụng.
+                </div>
+
+                <div class="empty"
+                     th:if="${!searchErrorPresent and #lists.isEmpty(results)}">
+                    <strong>Chưa tìm thấy tài liệu phù hợp</strong>
+                    Hãy chạy crawler hoặc nạp URL vào Lucene trước.
+                </div>
+
+                <article class="result" th:each="item : ${results}">
+                    <h3>
+                        <a th:href="${item.url}"
+                           th:text="${#strings.isEmpty(item.title) ? item.url : item.title}"
+                           target="_blank"
+                           rel="noopener noreferrer">Tiêu đề tài liệu</a>
+                    </h3>
+                    <div class="url" th:text="${item.url}"></div>
+                    <p class="snippet" th:text="${item.snippet}"></p>
+                    <div class="score">
+                        Điểm TF-IDF:
+                        <span th:text="${#numbers.formatDecimal(item.score, 1, 4)}"></span>
+                    </div>
+                </article>
+            </section>
+        </section>
+    </div>
+</main>
+
+<footer>HUST Search · Spring Boot · Apache Lucene</footer>
+
+<script>
+    const $ = id => document.getElementById(id);
+
+    let indexRunning = false;
+    let crawlRunning = false;
+
+    async function requestJson(url, options = {}) {
+        const response = await fetch(url, options);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            throw new Error(data.detail || data.message || data.error ||
+                `Yêu cầu thất bại (${response.status})`);
+        }
+
+        return data;
+    }
+
+    function renderStatus(prefix, data, type) {
+        const processed = Number(data.processed || 0);
+        const total = type === "index"
+            ? Number(data.total || 0)
+            : Number(data.limit || 0);
+
+        const indexed = Number(data.indexed || 0);
+        const errors = Number(data.errors || 0);
+        const running = Boolean(data.running);
+        const percentage = total > 0
+            ? Math.min(100, processed / total * 100)
+            : 0;
+
+        $(`${prefix}-processed`).textContent = processed;
+        $(`${prefix}-indexed`).textContent = indexed;
+        $(`${prefix}-errors`).textContent = errors;
+        $(`${prefix}-progress`).style.width = `${percentage}%`;
+        $(`${prefix}-message`).textContent = data.message || "";
+
+        const state = $(`${prefix}-state`);
+        state.textContent = running ? "Đang chạy" :
+            processed > 0 ? "Đã dừng / hoàn tất" : "Chưa chạy";
+        state.className = "state" + (running ? " running" :
+            processed > 0 ? " done" : "");
+
+        if (type === "index") {
+            indexRunning = running;
+        } else {
+            crawlRunning = running;
+        }
+
+        updateButtons();
+    }
+
+    function updateButtons() {
+        $("index-button").disabled = indexRunning || crawlRunning;
+        $("crawl-button").disabled = crawlRunning || indexRunning;
+        $("index-button").textContent = indexRunning
+            ? "Đang nạp..."
+            : "Nạp vào Lucene";
+        $("crawl-button").textContent = crawlRunning
+            ? "Crawler đang chạy..."
+            : "Bắt đầu crawl nền";
+    }
+
+    async function refreshStatuses() {
+        try {
+            const data = await requestJson("/api/indexing/status");
+            renderStatus("index", data, "index");
+        } catch (e) {
+            $("index-message").textContent = e.message;
+        }
+
+        try {
+            const data = await requestJson("/api/crawl/status");
+            renderStatus("crawl", data, "crawl");
+        } catch (e) {
+            $("crawl-message").textContent = e.message;
+        }
+    }
+
+    $("index-form").addEventListener("submit", async event => {
+        event.preventDefault();
+
+        if (indexRunning || crawlRunning) return;
+
+        const limit = $("url-limit").value;
+        if (!confirm(`Bắt đầu tải và lập chỉ mục tối đa ${limit} URL đầu tiên?`)) {
+            return;
+        }
+
+        try {
+            const data = await requestJson(
+                `/api/indexing/start?limit=${encodeURIComponent(limit)}`,
+                { method: "POST" }
+            );
+            renderStatus("index", data, "index");
+        } catch (e) {
+            $("index-message").textContent = e.message;
+            $("index-state").textContent = "Lỗi";
+            $("index-state").className = "state error";
+        }
+    });
+
+    $("crawl-button").addEventListener("click", async () => {
+        if (indexRunning || crawlRunning) return;
+
+        if (!confirm("Bắt đầu crawl website HUST trong nền?")) return;
+
+        try {
+            const data = await requestJson("/api/crawl/start", {
+                method: "POST"
+            });
+            renderStatus("crawl", data, "crawl");
+        } catch (e) {
+            $("crawl-message").textContent = e.message;
+            $("crawl-state").textContent = "Lỗi";
+            $("crawl-state").className = "state error";
+        }
+    });
+
+    refreshStatuses();
+    setInterval(refreshStatuses, 2000);
+</script>
+</body>
+</html>
