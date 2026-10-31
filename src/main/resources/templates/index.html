@@ -89,7 +89,8 @@
             margin: 0 0 20px;
         }
 
-        .search-form {
+        .search-form { display: block; }
+        .search-input-row {
             display: flex;
             gap: 10px;
         }
@@ -276,6 +277,95 @@
         .snippet { color: #475467; margin: 8px 0; }
         .score { color: var(--muted); font-size: 13px; }
 
+
+        .mode-switch {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            padding: 6px;
+            margin: 18px 0 14px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--surface);
+        }
+
+        .mode-option { position: relative; }
+        .mode-option input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .mode-option label {
+            display: block;
+            padding: 11px 14px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 700;
+            color: var(--muted);
+        }
+        .mode-option input:checked + label {
+            color: var(--blue);
+            background: white;
+            border-color: #b2ccff;
+            box-shadow: 0 1px 3px #10182812;
+        }
+        .mode-option input:focus-visible + label {
+            outline: 3px solid #175cd31c;
+        }
+        .mode-description {
+            min-height: 44px;
+            margin: 0 0 16px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+        .demo-queries {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-top: 12px;
+        }
+        .demo-queries span { color: var(--muted); font-size: 13px; }
+        button.query-chip {
+            padding: 5px 10px;
+            color: #344054;
+            background: white;
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        button.query-chip:hover { color: var(--blue); border-color: #84adff; background: var(--blue-light); }
+        .result-meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .result-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 9px;
+            border-radius: 20px;
+            background: var(--blue-light);
+            color: var(--blue);
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .result-tag.chunk { background: #f4f3ff; color: #6938ef; }
+        .result-tag.score-tag { background: #ecfdf3; color: var(--green); }
+        .result-explainer {
+            margin: 16px 0 0;
+            padding: 12px 14px;
+            border-left: 3px solid var(--blue);
+            background: #f8fafc;
+            color: #475467;
+            font-size: 13px;
+        }
+
         .empty {
             padding: 20px;
             margin-top: 14px;
@@ -307,7 +397,7 @@
         }
 
         @media (max-width: 460px) {
-            .search-form { flex-direction: column; }
+            .search-input-row { flex-direction: column; }
             .limit-row { grid-template-columns: 1fr; }
             .limit-row button { width: 100%; }
             .stats { gap: 6px; }
@@ -431,25 +521,65 @@
         </section>
 
         <section class="panel search-panel">
-            <h2>Tìm kiếm văn bản</h2>
+            <h2>Tìm kiếm và so sánh phương pháp</h2>
             <p class="description">
-                Tìm trên những tài liệu đã được lập chỉ mục, xếp hạng bằng TF-IDF.
+                Giữ nguyên truy vấn và chuyển đổi giữa tìm kiếm trên toàn tài liệu
+                và tìm kiếm trên từng đoạn nội dung.
             </p>
 
-            <form class="search-form" action="/" method="get">
+            <form class="search-form" action="/" method="get" id="search-form">
+                <div class="search-input-row">
                 <input type="search"
+                       id="search-query"
                        name="q"
                        placeholder="Nhập từ khóa tiếng Việt..."
                        th:value="${query}"
                        aria-label="Từ khóa tìm kiếm">
                 <button type="submit">Tìm kiếm</button>
+                </div>
+
+            <div class="mode-switch" role="radiogroup" aria-label="Chế độ tìm kiếm">
+                <div class="mode-option">
+                    <input type="radio" id="mode-full" name="mode" value="full"
+                           th:checked="${mode == 'full'}">
+                    <label for="mode-full">Full-document</label>
+                </div>
+                <div class="mode-option">
+                    <input type="radio" id="mode-chunk" name="mode" value="chunk"
+                           th:checked="${mode == 'chunk'}">
+                    <label for="mode-chunk">Chunk-based</label>
+                </div>
+            </div>
             </form>
+
+            <p class="mode-description" id="mode-description"
+               th:text="${mode == 'chunk'
+                    ? 'Tìm kiếm và xếp hạng từng đoạn nội dung. Kết quả được gộp theo URL, giữ đoạn có điểm cao nhất.'
+                    : 'Tìm kiếm và xếp hạng trên toàn bộ nội dung của mỗi trang web. Mỗi URL tương ứng một document.'}">
+                Tìm kiếm trên toàn bộ nội dung của mỗi trang web.
+            </p>
+
+            <div class="demo-queries">
+                <span>Truy vấn gợi ý:</span>
+                <button class="query-chip" type="button" data-query="trí tuệ nhân tạo">trí tuệ nhân tạo</button>
+                <button class="query-chip" type="button" data-query="tuyển sinh đại học">tuyển sinh đại học</button>
+                <button class="query-chip" type="button" data-query="nghiên cứu khoa học">nghiên cứu khoa học</button>
+            </div>
 
             <section th:if="${searched}">
                 <div class="results-header">
-                    <h2>Kết quả</h2>
-                    <span th:text="${resultCount} + ' tài liệu'">0 tài liệu</span>
+                    <h2>Kết quả tìm kiếm</h2>
+                    <span th:text="${resultCount} + ' kết quả'">0 kết quả</span>
                 </div>
+
+                <p class="result-explainer" th:if="${mode == 'chunk'}">
+                    Đang hiển thị kết quả Chunk-based. Mỗi kết quả đại diện cho URL
+                    và đoạn nội dung có điểm phù hợp cao nhất với truy vấn.
+                </p>
+                <p class="result-explainer" th:if="${mode == 'full'}">
+                    Đang hiển thị kết quả Full-document. Mỗi kết quả được xếp hạng
+                    dựa trên nội dung toàn bộ tài liệu.
+                </p>
 
                 <div class="empty" th:if="${searchErrorPresent}">
                     Không thể tìm kiếm. Hãy kiểm tra log ứng dụng.
@@ -457,8 +587,9 @@
 
                 <div class="empty"
                      th:if="${!searchErrorPresent and #lists.isEmpty(results)}">
-                    <strong>Chưa tìm thấy tài liệu phù hợp</strong>
-                    Hãy chạy crawler hoặc nạp URL vào Lucene trước.
+                    <strong>Chưa tìm thấy kết quả phù hợp</strong>
+                    Hãy chạy crawler hoặc nạp URL vào Lucene trước. Với Chunk-based,
+                    cần bảo đảm dữ liệu đã được lập chỉ mục thành chunks.
                 </div>
 
                 <article class="result" th:each="item : ${results}">
@@ -470,9 +601,14 @@
                     </h3>
                     <div class="url" th:text="${item.url}"></div>
                     <p class="snippet" th:text="${item.snippet}"></p>
-                    <div class="score">
-                        Điểm TF-IDF:
-                        <span th:text="${#numbers.formatDecimal(item.score, 1, 4)}"></span>
+
+                    <div class="result-meta">
+                        <span class="result-tag" th:if="${mode == 'full'}">Full document</span>
+                        <span class="result-tag chunk" th:if="${mode == 'chunk'}"
+                              th:text="${'Chunk #' + (item.chunkIndex + 1)}">Chunk #1</span>
+                        <span class="result-tag score-tag">
+                            TF-IDF: <span th:text="${#numbers.formatDecimal(item.score, 1, 4)}"></span>
+                        </span>
                     </div>
                 </article>
             </section>
@@ -599,6 +735,22 @@
             $("crawl-state").textContent = "Lỗi";
             $("crawl-state").className = "state error";
         }
+    });
+
+    const modeDescription = $("mode-description");
+    document.querySelectorAll('input[name="mode"]').forEach(input => {
+        input.addEventListener("change", () => {
+            modeDescription.textContent = input.value === "chunk"
+                ? "Tìm kiếm và xếp hạng từng đoạn nội dung. Kết quả được gộp theo URL, giữ đoạn có điểm cao nhất."
+                : "Tìm kiếm và xếp hạng trên toàn bộ nội dung của mỗi trang web. Mỗi URL tương ứng một document.";
+        });
+    });
+
+    document.querySelectorAll("button[data-query]").forEach(button => {
+        button.addEventListener("click", () => {
+            $("search-query").value = button.dataset.query;
+            $("search-query").focus();
+        });
     });
 
     refreshStatuses();

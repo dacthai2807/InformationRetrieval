@@ -30,6 +30,12 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>net.sourceforge.tess4j</groupId>
+            <artifactId>tess4j</artifactId>
+            <version>5.16.0</version>
+        </dependency>
+
         <!-- Web server, Spring MVC and embedded Tomcat -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

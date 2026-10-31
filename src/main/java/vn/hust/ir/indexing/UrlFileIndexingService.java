@@ -1,13 +1,14 @@
+
 package vn.hust.ir.indexing;
 
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
+import vn.hust.ir.crawler.ContentExtractor;
+import vn.hust.ir.crawler.ResourceProcessingService;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class UrlFileIndexingService {
 
     private final LuceneIndexService lucene;
+    private final ResourceProcessingService resourceProcessor;
     private final ThreadPoolTaskExecutor executor;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -30,12 +32,18 @@ public class UrlFileIndexingService {
     private volatile int indexed;
     private volatile int errors;
     private volatile String message = "Chưa bắt đầu nạp URL.";
+    private final ContentChunker contentChunker;
 
     public UrlFileIndexingService(
             LuceneIndexService lucene,
-            @Qualifier("crawlExecutor") ThreadPoolTaskExecutor executor
+            ResourceProcessingService resourceProcessor,
+            ContentChunker contentChunker,
+            @Qualifier("crawlExecutor")
+            ThreadPoolTaskExecutor executor
     ) {
         this.lucene = lucene;
+        this.resourceProcessor = resourceProcessor;
+        this.contentChunker = contentChunker;
         this.executor = executor;
     }
 
@@ -80,86 +88,134 @@ public class UrlFileIndexingService {
             message = "Đang chờ xử lý " + total + " URL.";
 
             running.set(true);
-            executor.execute(() -> processUrls(urls));
+
+            try {
+                executor.execute(() -> processUrls(urls));
+            } catch (RuntimeException e) {
+                running.set(false);
+                throw e;
+            }
+
             return true;
 
         } catch (Exception e) {
             throw new IllegalStateException(
-                    "Không thể khởi tạo nạp URL: " + e.getMessage(), e
+                    "Không thể khởi tạo nạp URL: " + e.getMessage(),
+                    e
             );
         }
     }
 
     public Status status() {
         return new Status(
-                running.get(), total, processed, indexed, errors, message
+                running.get(),
+                total,
+                processed,
+                indexed,
+                errors,
+                message
         );
     }
 
     private void processUrls(List<String> urls) {
         try {
             for (String url : urls) {
+                if (Thread.currentThread().isInterrupted()) {
+                    message = "Quá trình nạp URL đã bị gián đoạn.";
+                    break;
+                }
+
                 message = "Đang xử lý: " + url;
 
                 try {
                     Connection.Response response = Jsoup.connect(url)
-                            .userAgent("HUSTInformationRetrievalBot/1.0")
-                            .timeout(15000)
+                            .userAgent(
+                                    "HUSTInformationRetrievalBot/1.0 "
+                                            + "(academic research crawler)"
+                            )
+                            .timeout(20000)
                             .maxBodySize(10 * 1024 * 1024)
                             .followRedirects(true)
                             .ignoreHttpErrors(true)
                             .execute();
 
-                    if (response.statusCode() < 200
-                            || response.statusCode() >= 300) {
+                    int statusCode = response.statusCode();
+
+                    if (statusCode < 200 || statusCode >= 300) {
                         errors++;
                         continue;
                     }
+
+                    String finalUrl =
+                            response.url().toExternalForm();
 
                     String contentType = response.contentType() == null
                             ? ""
-                            : response.contentType().toLowerCase();
+                            : response.contentType().toLowerCase(
+                                    java.util.Locale.ROOT
+                            );
 
-                    // PDF/DOCX extraction will be added separately.
-                    if (!contentType.contains("text/html")) {
+                    byte[] bytes = response.bodyAsBytes();
+
+                    ResourceProcessingService.ResourceType type =
+                            resourceProcessor.detectType(
+                                    finalUrl, contentType
+                            );
+
+                    if (type
+                            == ResourceProcessingService.ResourceType.UNKNOWN) {
                         errors++;
                         continue;
                     }
 
-                    String finalUrl = response.url().toExternalForm();
+                    String htmlBody =
+                            type == ResourceProcessingService.ResourceType.HTML
+                                    ? response.body()
+                                    : null;
 
-                    Document page = response.parse();
-                    page.select(
-                            "script, style, noscript, nav, footer, "
-                            + "header, aside, form, iframe, svg"
-                    ).remove();
+                    ResourceProcessingService.ProcessedResource resource =
+                            resourceProcessor.process(
+                                    finalUrl,
+                                    contentType,
+                                    htmlBody,
+                                    bytes,
+                                    ContentExtractor.Strategy.READABILITY
+                            );
 
-                    Element main = page.selectFirst(
-                            "main, article, [role=main], "
-                            + ".post-content, .entry-content, .content-area"
-                    );
+                    if (resource.content() != null
+                            && !resource.content().isBlank()) {
 
-                    String content = main != null
-                            ? main.text()
-                            : page.body().text();
+                        // Index toàn bộ nội dung tài liệu.
+                        lucene.indexDocument(
+                                resource.title(),
+                                resource.url(),
+                                resource.content()
+                        );
 
-                    content = content.replaceAll("\\s+", " ").trim();
+                        // Chia nội dung thành các chunk.
+                        List<String> chunks = contentChunker.split(
+                                resource.content()
+                        );
 
-                    if (content.isBlank()) {
-                        errors++;
-                        continue;
+                        // Index từng chunk riêng biệt.
+                        lucene.indexChunks(
+                                resource.title(),
+                                resource.url(),
+                                chunks
+                        );
+
+                        indexed++;
                     }
 
-                    lucene.indexDocument(page.title(), finalUrl, content);
-                    indexed++;
-
-                    // Be polite to the website.
+                    // Image resources are processed for metadata only.
+                    // This service does not persist that metadata to JSONL.
                     Thread.sleep(300);
 
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     message = "Quá trình nạp URL đã bị gián đoạn.";
                     break;
+
                 } catch (Exception e) {
                     errors++;
                 } finally {

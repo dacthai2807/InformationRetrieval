@@ -24,6 +24,10 @@ ir:
     legacy-url-file: url-crawled.txt
     content-extraction-strategy: READABILITY
 
+    request-delay-ms: 3000
+    max-retries: 3
+    retry-backoff-ms: 5000
+
   storage:
     data-dir: data
     index-dir: index

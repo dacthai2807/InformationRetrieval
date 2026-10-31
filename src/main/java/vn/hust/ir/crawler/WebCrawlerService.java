@@ -10,9 +10,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
-import vn.hust.ir.crawler.ContentExtractor.ExtractedPage;
 import vn.hust.ir.crawler.ContentExtractor.LinkReference;
 import vn.hust.ir.indexing.LuceneIndexService;
+import vn.hust.ir.indexing.ContentChunker;
 
 import java.io.IOException;
 import java.net.URI;
@@ -29,6 +29,11 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
+import vn.hust.ir.storage.PageDocument;
+import vn.hust.ir.storage.PageRepository;
+
+import java.time.Instant;
+
 @Service
 public class WebCrawlerService {
 
@@ -36,9 +41,22 @@ public class WebCrawlerService {
             LoggerFactory.getLogger(WebCrawlerService.class);
 
     private final LuceneIndexService indexService;
-    private final ContentExtractor contentExtractor;
+    private final ResourceProcessingService resourceProcessor;
     private final ThreadPoolTaskExecutor executor;
-    private final ObjectMapper objectMapper;
+    // private final ObjectMapper objectMapper;
+    private final ContentChunker contentChunker;
+    private final PageRepository pageRepository;
+
+    @Value("${ir.crawler.request-delay-ms:3000}")
+    private long requestDelayMs;
+
+    @Value("${ir.crawler.max-retries:3}")
+    private int maxRetries;
+
+    @Value("${ir.crawler.retry-backoff-ms:5000}")
+    private long retryBackoffMs;
+
+    private volatile long lastRequestTime = 0;
 
     @Value("${ir.crawler.allowed-domain:hust.edu.vn}")
     private String allowedDomain;
@@ -58,8 +76,8 @@ public class WebCrawlerService {
     private final Path linksFile =
             Path.of("data", "links.tsv");
 
-    private final Path pagesFile =
-            Path.of("data", "pages.jsonl");
+    // private final Path pagesFile =
+    //         Path.of("data", "pages.jsonl");
 
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -70,20 +88,24 @@ public class WebCrawlerService {
 
     public WebCrawlerService(
             LuceneIndexService indexService,
-            ContentExtractor contentExtractor,
+            ResourceProcessingService resourceProcessor,
+            ContentChunker contentChunker,
             @Qualifier("crawlExecutor")
             ThreadPoolTaskExecutor executor,
-            ObjectMapper objectMapper
+            PageRepository pageRepository
+            // ObjectMapper objectMapper
     ) {
         this.indexService = indexService;
-        this.contentExtractor = contentExtractor;
+        this.resourceProcessor = resourceProcessor;
+        this.contentChunker = contentChunker;
         this.executor = executor;
-        this.objectMapper = objectMapper;
+        // this.objectMapper = objectMapper;
+        this.pageRepository = pageRepository;
     }
 
     public synchronized boolean start() {
         if (!running.compareAndSet(false, true)) {
-            log.warn("[CRAWLER] Yêu cầu khởi chạy bị bỏ qua: crawler đang chạy.");
+            log.warn("[CRAWLER] Crawler đang chạy.");
             return false;
         }
 
@@ -92,8 +114,10 @@ public class WebCrawlerService {
         errors = 0;
         message = "Đang khởi tạo crawler...";
 
-        log.info("[CRAWLER] Starting. Domain={}, maxPages={}, historyFile={}",
-                allowedDomain, maxPages, historyFile);
+        log.info(
+                "[CRAWLER] Starting. Domain={}, maxPages={}, historyFile={}",
+                allowedDomain, maxPages, historyFile
+        );
 
         try {
             executor.execute(this::crawl);
@@ -117,6 +141,43 @@ public class WebCrawlerService {
         );
     }
 
+    private void waitBeforeRequest() throws InterruptedException {
+        synchronized (this) {
+            long elapsed = System.currentTimeMillis() - lastRequestTime;
+            long remaining = requestDelayMs - elapsed;
+
+            if (remaining > 0) {
+                Thread.sleep(remaining);
+            }
+
+            lastRequestTime = System.currentTimeMillis();
+        }
+    }
+
+    private void waitBeforeRetry(
+            int retryAttempt,
+            Connection.Response response
+    ) throws InterruptedException {
+
+        long delay = retryBackoffMs * (1L << (retryAttempt - 1));
+
+        String retryAfter = response.headers()
+                .get("Retry-After");
+
+        if (retryAfter != null) {
+            try {
+                delay = Math.max(delay, Long.parseLong(retryAfter) * 1000L);
+            } catch (NumberFormatException ignored) {
+                // Retry-After không phải số giây.
+            }
+        }
+
+        log.warn("[RETRY WAIT] attempt={} | delay={}ms",
+                retryAttempt, delay);
+
+        Thread.sleep(delay);
+    }
+
     private void crawl() {
         try {
             Files.createDirectories(discoveredFile.getParent());
@@ -124,14 +185,10 @@ public class WebCrawlerService {
             ensureFile(discoveredFile);
             ensureFile(Path.of(historyFile));
             ensureFile(linksFile);
-            ensureFile(pagesFile);
+            // ensureFile(pagesFile);
 
             log.info("[CRAWLER] Working directory: {}",
                     Path.of("").toAbsolutePath());
-            log.info("[CRAWLER] Discovered file: {}",
-                    discoveredFile.toAbsolutePath());
-            log.info("[CRAWLER] History file: {}",
-                    Path.of(historyFile).toAbsolutePath());
 
             Set<String> crawled = readUrls(Path.of(historyFile));
             Set<String> discovered = readUrls(discoveredFile);
@@ -143,16 +200,12 @@ public class WebCrawlerService {
 
             if (seed == null) {
                 throw new IllegalStateException(
-                        "Không thể chuẩn hóa seed URL cho domain: "
-                                + allowedDomain);
+                        "Không thể chuẩn hóa seed URL: " + allowedDomain);
             }
 
             if (discovered.add(seed)) {
                 appendLine(discoveredFile, seed);
                 log.info("[CRAWLER] Added seed: {}", seed);
-            } else {
-                log.info("[CRAWLER] Seed đã tồn tại trong discovered: {}",
-                        seed);
             }
 
             ArrayDeque<String> queue = new ArrayDeque<>(discovered);
@@ -163,44 +216,59 @@ public class WebCrawlerService {
             while (!queue.isEmpty() && processed < maxPages) {
                 String url = queue.removeFirst();
 
-                log.info("[CRAWLER] Dequeued URL: {} | remaining={}",
-                        url, queue.size());
-
-                if (crawled.contains(url)) {
-                    log.info("[SKIP: HISTORY] {}", url);
-
-                    // Cho phép crawl lại trang chủ để khôi phục hàng đợi
-                    // khi discovered file chỉ chứa seed URL.
-                    if (!url.equals(seed)) {
-                        continue;
-                    }
-
-                    log.info("[CRAWLER] Seed URL sẽ được tải lại để khám phá link.");
+                if (!attemptedThisRun.add(url)) {
+                    log.debug("[SKIP: DUPLICATE THIS RUN] {}", url);
+                    continue;
                 }
 
-                if (!attemptedThisRun.add(url)) {
-                    log.info("[SKIP: DUPLICATE THIS RUN] {}", url);
+                if (crawled.contains(url) && !url.equals(seed)) {
+                    log.debug("[SKIP: HISTORY] {}", url);
                     continue;
                 }
 
                 if (!isAllowedDomain(url)) {
-                    log.info("[SKIP: DISALLOWED DOMAIN] {}", url);
+                    log.debug("[SKIP: DISALLOWED DOMAIN] {}", url);
                     continue;
                 }
 
                 message = "Đang xử lý: " + url;
 
                 try {
-                    Connection.Response response = Jsoup.connect(url)
-                            .userAgent(
-                                    "HUSTInformationRetrievalBot/1.0 "
-                                            + "(academic research crawler)"
-                            )
-                            .timeout(20_000)
-                            .maxBodySize(10 * 1024 * 1024)
-                            .followRedirects(true)
-                            .ignoreHttpErrors(true)
-                            .execute();
+                    Connection.Response response = null;
+
+                    for (int attempt = 1; attempt <= maxRetries + 1; attempt++) {
+
+                        waitBeforeRequest();
+
+                        response = Jsoup.connect(url)
+                                        .userAgent(
+                                                "HUSTInformationRetrievalBot/1.0 "
+                                                        + "(academic research crawler)"
+                                        )
+                                        .timeout(20000)
+                                        .maxBodySize(100 * 1024 * 1024)
+                                        .followRedirects(true)
+                                        .ignoreHttpErrors(true)
+                                        .ignoreContentType(true)
+                                        .execute();
+
+                        int statusCode = response.statusCode();
+
+                        if (statusCode == 429 || statusCode >= 500) {
+
+                            if (attempt <= maxRetries) {
+                                log.warn(
+                                        "[HTTP RETRY] URL={} | status={} | attempt={}/{}",
+                                        url, statusCode, attempt, maxRetries
+                                );
+
+                                waitBeforeRetry(attempt, response);
+                                continue;
+                            }
+                        }
+
+                        break;
+                    }
 
                     String finalUrl = normalizeUrl(
                             response.url().toExternalForm());
@@ -209,17 +277,14 @@ public class WebCrawlerService {
 
                     String contentType = response.contentType() == null
                             ? ""
-                            : response.contentType()
-                                    .toLowerCase(Locale.ROOT);
+                            : response.contentType().toLowerCase(Locale.ROOT);
+
+                    byte[] bytes = response.bodyAsBytes();
 
                     log.info(
                             "[HTTP] requested={} | final={} | status={} "
                                     + "| contentType={} | bodyBytes={}",
-                            url,
-                            finalUrl,
-                            statusCode,
-                            contentType,
-                            response.bodyAsBytes().length
+                            url, finalUrl, statusCode, contentType, bytes.length
                     );
 
                     if (finalUrl == null || !isAllowedDomain(finalUrl)) {
@@ -236,19 +301,18 @@ public class WebCrawlerService {
                         continue;
                     }
 
-                    // This stage currently processes HTML pages only.
-                    // PDF/DOCX and other document types can be handled by Tika.
-                    if (!contentType.contains("text/html")) {
-                        log.info("[SKIP: NON-HTML] {} | {}",
+                    ResourceProcessingService.ResourceType detectedType =
+                            resourceProcessor.detectType(finalUrl, contentType);
+
+                    if (detectedType
+                            == ResourceProcessingService.ResourceType.UNKNOWN) {
+                        log.info("[SKIP: UNSUPPORTED TYPE] {} | {}",
                                 finalUrl, contentType);
                         continue;
                     }
 
-                    processed++;
-
                     if (crawled.contains(finalUrl) && !finalUrl.equals(seed)) {
-                        if (!crawled.contains(url)) {
-                            crawled.add(url);
+                        if (crawled.add(url)) {
                             appendLine(Path.of(historyFile), url);
                         }
 
@@ -256,65 +320,81 @@ public class WebCrawlerService {
                         continue;
                     }
 
-                    ContentExtractor.Strategy strategy =
-                            resolveStrategy(extractionStrategyName);
+                    String htmlBody =
+                            detectedType == ResourceProcessingService.ResourceType.HTML
+                                    ? response.body()
+                                    : null;
 
-                    ExtractedPage page = contentExtractor.extract(
-                            finalUrl,
-                            response.body(),
-                            strategy
-                    );
+                    ResourceProcessingService.ProcessedResource resource =
+                            resourceProcessor.process(
+                                    finalUrl,
+                                    contentType,
+                                    htmlBody,
+                                    bytes,
+                                    resolveStrategy(extractionStrategyName)
+                            );
 
-                    int contentLength = page.content() == null
+                    processed++;
+
+                    int contentLength = resource.content() == null
                             ? 0
-                            : page.content().length();
+                            : resource.content().length();
 
-                    int linkCount = page.links() == null
+                    int linkCount = resource.links() == null
                             ? 0
-                            : page.links().size();
+                            : resource.links().size();
 
                     log.info(
-                            "[EXTRACT] url={} | title={} | contentLength={} "
-                                    + "| extractedLinks={}",
+                            "[RESOURCE] url={} | type={} | title={} "
+                                    + "| contentLength={} | links={}",
                             finalUrl,
-                            page.title(),
+                            resource.resourceType(),
+                            resource.title(),
                             contentLength,
                             linkCount
                     );
 
-                    // Show up to 10 links to help diagnose extraction.
-                    if (page.links() != null) {
-                        page.links().stream()
-                                .limit(10)
-                                .forEach(link ->
-                                        log.info(
-                                                "[EXTRACT SAMPLE LINK] {} | anchor={}",
-                                                link.destinationUrl(),
-                                                link.anchorText()
-                                        ));
-                    }
+                    saveResourceMetadata(resource);
 
-                    savePageMetadata(page, contentType);
+                    if (resource.content() != null
+                            && !resource.content().isBlank()) {
 
-                    if (page.content() != null
-                            && !page.content().isBlank()) {
+                        // Index toàn bộ tài liệu.
                         indexService.indexDocument(
-                                page.title(),
+                                resource.title(),
                                 finalUrl,
-                                page.content()
+                                resource.content()
                         );
+
+                        // Chia nội dung thành các chunk.
+                        var chunks = contentChunker.split(
+                                resource.content()
+                        );
+
+                        // Index các chunk.
+                        indexService.indexChunks(
+                                resource.title(),
+                                finalUrl,
+                                chunks
+                        );
+
                         indexed++;
 
-                        log.info("[INDEXED] {} | indexedCount={}",
-                                finalUrl, indexed);
+                        log.info(
+                                "[INDEXED] {} | type={} | chunks={} | count={}",
+                                finalUrl,
+                                resource.resourceType(),
+                                chunks.size(),
+                                indexed
+                        );
+
                     } else {
-                        log.warn("[EMPTY CONTENT] {}",
-                                finalUrl);
+                        log.info("[NO TEXT TO INDEX] {} | type={}",
+                                finalUrl, resource.resourceType());
                     }
 
                     if (crawled.add(finalUrl)) {
                         appendLine(Path.of(historyFile), finalUrl);
-                        log.info("[HISTORY SAVED] {}", finalUrl);
                     }
 
                     int discoveredBefore = discovered.size();
@@ -323,19 +403,15 @@ public class WebCrawlerService {
                     int invalidLinks = 0;
                     int duplicateLinks = 0;
 
-                    if (page.links() != null) {
-                        for (LinkReference link : page.links()) {
-                            String rawUrl = link.destinationUrl();
-                            String destination = normalizeUrl(rawUrl);
+                    if (resource.links() != null) {
+                        for (LinkReference link : resource.links()) {
+                            String destination =
+                                    normalizeUrl(link.destinationUrl());
 
                             if (destination == null) {
                                 invalidLinks++;
-                                log.debug("[SKIP: INVALID URL] raw={}",
-                                        rawUrl);
                                 continue;
                             }
-
-                            boolean allowed = isAllowedDomain(destination);
 
                             appendLink(
                                     finalUrl,
@@ -343,34 +419,20 @@ public class WebCrawlerService {
                                     link.anchorText()
                             );
 
-                            if (!allowed) {
+                            if (!isAllowedDomain(destination)) {
                                 externalLinks++;
-                                log.debug("[EXTERNAL LINK] {} -> {}",
-                                        finalUrl, destination);
                                 continue;
                             }
 
                             if (discovered.add(destination)) {
                                 appendLine(discoveredFile, destination);
 
-                                log.info("[DISCOVERED] {}",
-                                        destination);
-
                                 if (!crawled.contains(destination)) {
                                     queue.addLast(destination);
                                     queuedFromPage++;
-
-                                    log.info("[QUEUED] {} | queueSize={}",
-                                            destination, queue.size());
-                                } else {
-                                    log.debug(
-                                            "[NOT QUEUED: ALREADY CRAWLED] {}",
-                                            destination);
                                 }
                             } else {
                                 duplicateLinks++;
-                                log.debug("[DUPLICATE DISCOVERED] {}",
-                                        destination);
                             }
                         }
                     }
@@ -390,14 +452,12 @@ public class WebCrawlerService {
                             queue.size()
                     );
 
-                    // Be polite to the target server.
                     Thread.sleep(300);
 
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     message = "Crawler bị gián đoạn.";
-                    log.warn("[CRAWLER] Interrupted while processing {}",
-                            url);
+                    log.warn("[CRAWLER] Interrupted at {}", url);
                     break;
 
                 } catch (Exception e) {
@@ -432,8 +492,7 @@ public class WebCrawlerService {
             message = "Crawler gặp lỗi khởi tạo hoặc lưu dữ liệu: "
                     + e.getMessage();
 
-            log.error("[CRAWLER FATAL] Initialization or persistence failed",
-                    e);
+            log.error("[CRAWLER FATAL]", e);
 
         } finally {
             running.set(false);
@@ -453,23 +512,6 @@ public class WebCrawlerService {
         }
     }
 
-    private void savePageMetadata(
-            ExtractedPage page,
-            String contentType
-    ) throws IOException {
-        Map<String, Object> record = new LinkedHashMap<>();
-
-        record.put("url", page.url());
-        record.put("title", page.title());
-        record.put("publishDate", page.publishDate());
-        record.put("author", page.author());
-        record.put("content", page.content());
-        record.put("contentType", contentType);
-        record.put("links", page.links());
-
-        appendLine(pagesFile, objectMapper.writeValueAsString(record));
-    }
-
     private boolean isAllowedDomain(String url) {
         try {
             String host = URI.create(url).getHost();
@@ -481,12 +523,58 @@ public class WebCrawlerService {
             host = host.toLowerCase(Locale.ROOT);
             String domain = allowedDomain.toLowerCase(Locale.ROOT);
 
-            return host.equals(domain)
-                    || host.endsWith("." + domain);
+            return host.equals(domain) || host.endsWith("." + domain);
 
         } catch (Exception e) {
             return false;
         }
+    }
+
+    // private void saveResourceMetadata(
+    //         ResourceProcessingService.ProcessedResource resource
+    // ) throws IOException {
+
+    //     Map<String, Object> record = new LinkedHashMap<>();
+
+    //     record.put("url", resource.url());
+    //     record.put("title", resource.title());
+    //     record.put("publishDate", resource.publishDate());
+    //     record.put("author", resource.author());
+    //     record.put("content", resource.content());
+    //     record.put("contentType", resource.contentType());
+    //     record.put("resourceType", resource.resourceType().name());
+    //     record.put("metadata", resource.metadata());
+    //     record.put("links", resource.links());
+
+    //     appendLine(
+    //             pagesFile,
+    //             objectMapper.writeValueAsString(record)
+    //     );
+    // }
+
+    private void saveResourceMetadata(
+        ResourceProcessingService.ProcessedResource resource
+    ) {
+        PageDocument document = new PageDocument(
+                resource.url(), // Dùng URL làm MongoDB _id
+                resource.url(),
+                resource.title(),
+                resource.publishDate(),
+                resource.author(),
+                resource.content(),
+                resource.contentType(),
+                resource.resourceType().name(),
+                resource.links(),
+                resource.metadata(),
+                Instant.now()
+        );
+
+        pageRepository.save(document);
+
+        log.info("[MONGODB SAVED] url={} | title={} | type={}",
+                resource.url(),
+                resource.title(),
+                resource.resourceType());
     }
 
     private String normalizeUrl(String rawUrl) {
@@ -548,13 +636,7 @@ public class WebCrawlerService {
             }
 
             return new URI(
-                    scheme,
-                    null,
-                    host,
-                    port,
-                    path,
-                    query,
-                    null
+                    scheme, null, host, port, path, query, null
             ).toASCIIString();
 
         } catch (Exception e) {
@@ -615,6 +697,7 @@ public class WebCrawlerService {
             String destination,
             String anchorText
     ) throws IOException {
+
         String safeAnchor = anchorText == null
                 ? ""
                 : anchorText.replace("\t", " ")
@@ -637,3 +720,4 @@ public class WebCrawlerService {
     ) {
     }
 }
+
