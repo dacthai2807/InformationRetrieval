@@ -1,0 +1,65 @@
+@startuml 01_architecture
+!include style.iuml
+title Kiến trúc tổng quan HUST Search (Spring Boot, cổng 8080)
+left to right direction
+
+actor "Người dùng" as User
+cloud "hust.edu.vn\n+ subdomain" as Web
+
+package "web (Controller)" {
+  [HomeController] as Home
+  [CrawlController] as CrawlC
+  [UrlIndexingController] as UrlC
+  [IndexingController] as IdxC
+  [ExtractionTestController] as TestC
+}
+package "crawler" {
+  [WebCrawlerService] as Crawler
+  [ResourceProcessingService] as Proc
+  [ContentExtractor] as Extract
+  [OcrService] as Ocr
+}
+package "indexing / search" {
+  [UrlFileIndexingService] as UrlIdx
+  [ContentChunker] as Chunk
+  [LuceneIndexService] as Lucene
+  [VietnameseTextAnalyzer] as Analyzer
+  [SearchService] as Search
+}
+package "storage" {
+  [PageRepository] as Repo
+}
+
+database "MongoDB\ncollection pages" as Mongo
+database "Lucene index\n(FSDirectory ./index)" as Index
+folder "data/*.txt, *.tsv\nurl-crawled.txt" as Files
+component "Apache Tika" as Tika
+component "Tesseract\n(vie+eng)" as Tess
+
+User --> Home : GET /?q=&mode=
+User --> CrawlC : POST /api/crawl/start
+User --> UrlC : POST /api/indexing/start
+Home --> Search
+Search --> Lucene
+CrawlC --> Crawler
+UrlC --> UrlIdx
+IdxC --> Lucene
+TestC --> Proc
+
+Crawler --> Web : Jsoup HTTP
+Crawler --> Proc
+Proc --> Extract : HTML
+Proc --> Tika : PDF / DOC / metadata
+Proc --> Ocr : IMAGE
+Ocr --> Tess
+Crawler --> Repo
+Repo --> Mongo
+Crawler --> Files : links.tsv\ndiscovered, history
+Crawler --> Chunk
+Crawler --> Lucene
+UrlIdx --> Proc
+UrlIdx --> Chunk
+UrlIdx --> Lucene
+Lucene --> Analyzer
+Lucene --> Index
+@enduml

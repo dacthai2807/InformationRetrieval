@@ -1,0 +1,26 @@
+@startuml 08_usecase
+!include style.iuml
+title Use case
+left to right direction
+actor "Người dùng\ntìm kiếm" as U
+actor "Quản trị / Nhóm phát triển" as A
+rectangle "HUST Search" {
+  usecase "Tìm kiếm từ khóa\ntiếng Việt" as UC1
+  usecase "Chọn chế độ\nFull / Chunk" as UC2
+  usecase "Xem snippet, điểm TF-IDF" as UC3
+  usecase "Chạy crawler\ntừ seed hust.edu.vn" as UC4
+  usecase "Theo dõi tiến độ" as UC5
+  usecase "Nạp N URL có sẵn\nvào Lucene" as UC6
+  usecase "Index thủ công\n1 tài liệu" as UC7
+  usecase "Thử trích xuất\nfile / URL" as UC8
+}
+U --> UC1
+UC1 .> UC2 : <<include>>
+UC1 .> UC3 : <<include>>
+A --> UC4
+A --> UC6
+A --> UC7
+A --> UC8
+UC4 .> UC5 : <<include>>
+UC6 .> UC5 : <<include>>
+@enduml

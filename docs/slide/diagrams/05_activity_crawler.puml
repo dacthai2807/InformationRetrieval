@@ -1,0 +1,33 @@
+@startuml 05_activity_crawler
+!include style.iuml
+title Activity: vòng lặp BFS của crawler
+start
+:Nạp url-crawled.txt, url-discovered.txt;
+:Thêm seed https://hust.edu.vn/ ;
+:queue = ArrayDeque(discovered);
+while (queue không rỗng\nvà processed < maxPages?) is (còn)
+  :url = queue.removeFirst();
+  if (đã thử / đã crawl / ngoài domain?) then (có)
+    :bỏ qua;
+  else (không)
+    :GET (throttle 3s, retry 429/5xx);
+    if (finalUrl ngoài domain\nhoặc status ∉ 2xx?) then (có)
+      :errors++;
+    elseif (loại = UNKNOWN?) then (có)
+      :bỏ qua;
+    else (hợp lệ)
+      :Trích xuất (HTML / Tika / OCR);
+      :Lưu MongoDB;
+      if (content không rỗng?) then (có)
+        :Index full + Index chunks;
+        :indexed++;
+      endif
+      :Ghi lịch sử URL + links.tsv;
+      :Link nội miền mới → discovered + queue;
+      :processed++;
+    endif
+  endif
+endwhile (hết)
+:Cập nhật trạng thái\n"đạt giới hạn" / "hết hàng đợi";
+stop
+@enduml

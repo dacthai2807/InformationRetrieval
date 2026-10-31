@@ -1,0 +1,22 @@
+@startuml 04s_sequence_search_short
+!include style.iuml
+title Một lượt tìm kiếm
+skinparam defaultFontSize 15
+skinparam SequenceMessageAlignment left
+actor User
+participant "HomeController" as H
+participant "SearchService" as S
+participant "LuceneIndexService" as L
+participant "Analyzer" as A
+database "Index" as I
+User -> H : GET /?q=…&mode=chunk|full
+H -> S : search(q, mode)
+S -> L : search() hoặc searchChunks()
+L -> A : bỏ dấu + unigram + bigram
+L -> L : parser title^2, content^1, OR\n+ FILTER documentType
+L -> I : search(query, N) — TF-IDF
+I --> L : TopDocs
+L -> L : (chunk) gộp theo URL, giữ điểm cao nhất\nmakeSnippet()
+L --> H : List<SearchResult>
+H --> User : tiêu đề, URL, snippet, Chunk #k, điểm
+@enduml

@@ -1,0 +1,52 @@
+@startuml 09_data_model
+!include style.iuml
+title Mô hình dữ liệu: MongoDB, Lucene, tệp phẳng
+hide methods
+skinparam classAttributeIconSize 0
+
+package "MongoDB — collection pages" {
+  class PageDocument {
+    _id : String = url
+    url : String
+    title : String
+    publishDate : String
+    author : String
+    content : String
+    contentType : String
+    resourceType : HTML|PDF|DOCUMENT|IMAGE
+    metadata : Map<String,String>
+    crawledAt : Instant
+  }
+  class LinkReference {
+    destinationUrl : String
+    anchorText : String
+  }
+}
+package "Lucene index" {
+  class "Lucene doc 'full'" as Full {
+    documentType = "full" <<StringField>>
+    url <<StringField, khóa cập nhật>>
+    title <<TextField, boost 2.0>>
+    content <<TextField>>
+  }
+  class "Lucene doc 'chunk'" as Chunk {
+    documentType = "chunk" <<StringField>>
+    chunkId = url#chunk-i <<StringField>>
+    chunkUrl <<StringField, khóa xóa>>
+    title <<TextField, boost 2.0>>
+    content ≈400 từ <<TextField>>
+    chunkIndex <<StoredField>>
+  }
+}
+package "Tệp phẳng" {
+  class "links.tsv" as Links {
+    nguồn ⇥ đích ⇥ anchor
+  }
+  class "url-discovered.txt" as Disc
+  class "url-crawled.txt" as Hist
+}
+PageDocument "1" *-- "0..*" LinkReference : links
+PageDocument "1" .. "1" Full : url
+PageDocument "1" .. "0..*" Chunk : chunkUrl = url
+PageDocument .. Links : cạnh nguồn→đích
+@enduml

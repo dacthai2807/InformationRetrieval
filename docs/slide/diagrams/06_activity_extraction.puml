@@ -1,0 +1,27 @@
+@startuml 06_activity_extraction
+!include style.iuml
+title Activity: trích xuất nội dung chính của trang HTML
+start
+:Jsoup.parse(html, url);
+fork
+  :title: og:title → twitter:title → h1 → <title>;
+fork again
+  :publishDate, author từ meta / time / rel=author;
+fork again
+  :links: a[href] → URL tuyệt đối\n(bỏ javascript:, mailto:, tel:);
+end fork
+:Clone DOM; xóa script, style, noscript, svg,\ncanvas, iframe, nav, footer, aside, form, button;
+:Ứng viên = article, main, [role=main], .post-content, #content,\nsection, div, body (text ≥ 80 ký tự);
+:score = ln(1+len) + 2·#p + 1.5·#h − 12·linkDensity;
+if (strategy = READABILITY?) then (có)
+  :+15 article, +12 main;\n+8 id/class article|content|post;\n−15 nav|menu|footer|sidebar|widget;
+else (DOM_HEURISTIC)
+  :+5 nếu ≥ 3 đoạn p;\n−10 nếu linkDensity > 0.5;
+endif
+:Chọn ứng viên điểm cao nhất → text;
+if (text rỗng?) then (có)
+  :Fallback: body.text();
+endif
+:ExtractedPage(title, date, author, content, links);
+stop
+@enduml

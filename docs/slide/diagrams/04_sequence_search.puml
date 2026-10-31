@@ -1,0 +1,31 @@
+@startuml 04_sequence_search
+!include style.iuml
+title Sequence: tìm kiếm (mode = chunk | full)
+autonumber
+actor User
+participant "HomeController" as H
+participant "SearchService" as S
+participant "LuceneIndexService" as L
+participant "VietnameseText\nAnalyzer" as A
+database "Lucene index" as I
+
+User -> H : GET /?q=đại học bách khoa&mode=chunk
+H -> S : search(q, mode)
+alt mode = "full"
+  S -> L : search(q, 20)
+else mode = "chunk" (mặc định)
+  S -> L : searchChunks(q, 20)
+end
+L -> A : phân tích truy vấn\n(bỏ dấu + unigram + bigram)
+A --> L : dai, dai_hoc, hoc, hoc_bach, ...
+L -> L : MultiFieldQueryParser\ntitle^2.0, content^1.0, OR\n+ FILTER documentType
+L -> I : IndexSearcher.search(query, N)\nClassicSimilarity (TF-IDF)
+I --> L : TopDocs
+alt chunk
+  L -> L : N = min(1000, 10·limit)\ngộp theo chunkUrl, giữ điểm cao nhất
+end
+L -> L : makeSnippet(content, q)
+L --> S : List<SearchResult>
+S --> H : results
+H --> User : index.html (Thymeleaf):\ntiêu đề, URL, snippet, Chunk #k, điểm TF-IDF
+@enduml

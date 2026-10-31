@@ -1,0 +1,14 @@
+@startuml 07_activity_analyzer
+!include style.iuml
+title Pipeline VietnameseTextAnalyzer (index và query dùng chung)
+start
+:Văn bản gốc\n"Đại học Bách khoa";
+:toLowerCase, đ → d;
+:Unicode NFD + xóa dấu (\p{M});
+note right: "dai hoc bach khoa"
+:Tách từ bằng [\p{L}\p{N}]+;
+note right: dai | hoc | bach | khoa
+:Sinh bigram kề nhau\n(word_i + "_" + word_i+1);
+:Token stream:\ndai, dai_hoc, hoc, hoc_bach, bach, bach_khoa, khoa;
+stop
+@enduml

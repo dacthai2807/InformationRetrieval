@@ -1,0 +1,24 @@
+@startuml 03s_sequence_crawl_short
+!include style.iuml
+title Xử lý một URL (rút gọn)
+skinparam defaultFontSize 15
+skinparam SequenceMessageAlignment left
+participant "WebCrawler" as C
+participant "hust.edu.vn" as W
+participant "ResourceProcessing" as P
+participant "MongoDB" as M
+participant "Lucene" as L
+participant "Files" as F
+C -> C : lấy URL từ hàng đợi, kiểm tra trùng/domain
+loop ≤ 4 lần
+  C -> W : GET (cách ≥ 3 s)
+  W --> C : 2xx / 429 / 5xx → backoff
+end
+C -> P : process(url, mime, bytes)
+P --> C : ProcessedResource
+C -> M : save (_id = URL)
+C -> L : indexDocument (full)
+C -> L : indexChunks (400 từ, overlap 50)
+C -> F : url-crawled, links.tsv, url-discovered
+C -> C : link nội miền mới → hàng đợi
+@enduml

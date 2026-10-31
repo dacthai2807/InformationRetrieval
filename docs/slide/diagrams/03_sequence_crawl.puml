@@ -1,0 +1,45 @@
+@startuml 03_sequence_crawl
+!include style.iuml
+title Sequence: xử lý một URL trong crawler
+autonumber
+participant "WebCrawler\nService" as C
+participant "Server\nhust.edu.vn" as W
+participant "ResourceProcessing\nService" as P
+participant "PageRepository\n(MongoDB)" as M
+participant "ContentChunker" as K
+participant "LuceneIndex\nService" as L
+participant "Files\n(*.txt, links.tsv)" as F
+
+C -> C : url = queue.removeFirst()\nkiểm tra trùng / lịch sử / domain
+loop tối đa maxRetries+1 lần
+  C -> C : waitBeforeRequest() (≥ 3s)
+  C -> W : GET url (Jsoup, UA bot học thuật)
+  W --> C : response
+  alt status = 429 hoặc ≥ 500
+    C -> C : waitBeforeRetry()\n5s·2^(n-1), Retry-After
+  end
+end
+C -> C : finalUrl = normalizeUrl(response.url)\nkiểm tra domain, status 2xx
+C -> P : detectType(finalUrl, contentType)
+alt UNKNOWN
+  C -> C : bỏ qua
+else HTML / PDF / DOCUMENT / IMAGE
+  C -> P : process(finalUrl, mime, html, bytes, READABILITY)
+  P --> C : ProcessedResource
+  C -> M : save(PageDocument)  (_id = URL)
+  opt content không rỗng
+    C -> L : indexDocument(title, url, content)  [full]
+    C -> K : split(content)
+    K --> C : chunks (400 từ, overlap 50)
+    C -> L : indexChunks(title, url, chunks)  [chunk]
+  end
+  C -> F : append url-crawled.txt
+  loop mỗi link của trang
+    C -> F : append links.tsv
+    alt cùng miền & chưa thấy
+      C -> F : append url-discovered.txt
+      C -> C : queue.addLast(link)
+    end
+  end
+end
+@enduml

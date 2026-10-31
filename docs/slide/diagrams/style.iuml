@@ -1,0 +1,30 @@
+' Shared style for all HUST Search diagrams
+skinparam backgroundColor white
+skinparam dpi 150
+skinparam defaultFontName "DejaVu Sans"
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.2
+skinparam NoteBackgroundColor #FFF8E1
+skinparam NoteBorderColor #F9A825
+skinparam ComponentBackgroundColor #E3F2FD
+skinparam ComponentBorderColor #1565C0
+skinparam ClassBackgroundColor #F5F9FF
+skinparam ClassBorderColor #1565C0
+skinparam ClassHeaderBackgroundColor #BBDEFB
+skinparam PackageBackgroundColor #FAFAFA
+skinparam PackageBorderColor #90A4AE
+skinparam DatabaseBackgroundColor #E8F5E9
+skinparam DatabaseBorderColor #2E7D32
+skinparam ActivityBackgroundColor #E3F2FD
+skinparam ActivityBorderColor #1565C0
+skinparam ActivityDiamondBackgroundColor #FFF3E0
+skinparam ActivityDiamondBorderColor #EF6C00
+skinparam SequenceLifeLineBorderColor #90A4AE
+skinparam SequenceParticipantBackgroundColor #E3F2FD
+skinparam SequenceParticipantBorderColor #1565C0
+skinparam UsecaseBackgroundColor #E3F2FD
+skinparam UsecaseBorderColor #1565C0
+skinparam ActorBorderColor #455A64

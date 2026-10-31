@@ -1,0 +1,117 @@
+@startuml 02_class_diagram
+!include style.iuml
+title Sơ đồ lớp chính (vn.hust.ir)
+hide empty members
+
+package crawler {
+  class WebCrawlerService <<Service>> {
+    -requestDelayMs: long
+    -maxRetries: int
+    -allowedDomain: String
+    -maxPages: int
+    +start(): boolean
+    +status(): CrawlStatus
+    -crawl()
+    -normalizeUrl(raw): String
+    -isAllowedDomain(url): boolean
+    -waitBeforeRequest()
+    -waitBeforeRetry(n, resp)
+  }
+  class ResourceProcessingService <<Service>> {
+    +detectType(url, mime): ResourceType
+    +process(url, mime, html, bytes, strategy): ProcessedResource
+  }
+  enum ResourceType {
+    HTML
+    PDF
+    DOCUMENT
+    IMAGE
+    UNKNOWN
+  }
+  class ProcessedResource <<record>> {
+    url, title, publishDate, author
+    content, contentType
+    links: List<LinkReference>
+    metadata: Map
+  }
+  class ContentExtractor <<Component>> {
+    +extract(url, html, Strategy): ExtractedPage
+    -score(element, readability): double
+  }
+  enum Strategy {
+    DOM_HEURISTIC
+    READABILITY
+  }
+  class LinkReference <<record>> {
+    destinationUrl
+    anchorText
+  }
+  class OcrService <<Service>> {
+    +extractText(byte[]): String
+  }
+}
+package indexing {
+  class ContentChunker <<Component>> {
+    -CHUNK_SIZE = 400
+    -CHUNK_OVERLAP = 50
+    +split(content): List<String>
+  }
+  class LuceneIndexService <<Service>> {
+    +indexDocument(title, url, content)
+    +indexChunks(title, url, chunks)
+    +search(q, limit): List<SearchResult>
+    +searchChunks(q, limit): List<SearchResult>
+    -makeSnippet(content, q): String
+  }
+  class SearchResult <<record>> {
+    title, url, snippet
+    score, chunkIndex
+  }
+  class UrlFileIndexingService <<Service>> {
+    +start(limit): boolean
+    +status(): Status
+  }
+}
+package text {
+  class VietnameseTextAnalyzer {
+    #createComponents(field)
+  }
+  class VietnameseTokenizer {
+    +reset()
+    +incrementToken(): boolean
+  }
+}
+package search {
+  class SearchService <<Service>> {
+    +search(q, mode): List<SearchResult>
+  }
+}
+package storage {
+  class PageDocument <<@Document pages>> {
+    @Id id, url, title
+    publishDate, author, content
+    contentType, resourceType
+    links, metadata, crawledAt
+  }
+  interface PageRepository <<MongoRepository>>
+}
+
+WebCrawlerService --> ResourceProcessingService
+WebCrawlerService --> ContentChunker
+WebCrawlerService --> LuceneIndexService
+WebCrawlerService --> PageRepository
+ResourceProcessingService --> ContentExtractor
+ResourceProcessingService --> OcrService
+ResourceProcessingService ..> ResourceType
+ResourceProcessingService ..> ProcessedResource
+ContentExtractor ..> Strategy
+ProcessedResource o-- LinkReference
+UrlFileIndexingService --> ResourceProcessingService
+UrlFileIndexingService --> ContentChunker
+UrlFileIndexingService --> LuceneIndexService
+LuceneIndexService --> VietnameseTextAnalyzer
+LuceneIndexService ..> SearchResult
+VietnameseTextAnalyzer *-- VietnameseTokenizer
+SearchService --> LuceneIndexService
+PageRepository ..> PageDocument
+@enduml
